@@ -1,0 +1,100 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-bootstrap-tofu-state-script
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
+data:
+  bootstrap.sh: |
+    #!/bin/sh
+    set -eu
+
+    apk add --no-cache curl jq >/dev/null
+
+    ADMIN_URL="http://garage.garage.svc.cluster.local:3903"
+    AUTH="Authorization: Bearer $GARAGE_ADMIN_TOKEN"
+
+    echo "Waiting for Garage admin API..."
+    for i in $(seq 1 30); do
+      if curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterStatus" > /dev/null 2>&1; then
+        break
+      fi
+      if [ "$i" = 30 ]; then
+        echo "Garage admin API never came up." >&2
+        exit 1
+      fi
+      sleep 5
+    done
+
+    LAYOUT=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterLayout")
+    ROLE_COUNT=$(echo "$LAYOUT" | jq '.roles | length')
+
+    if [ "$ROLE_COUNT" = "0" ]; then
+      echo "No layout assigned yet, assigning this node..."
+      NODE_ID=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterStatus" | jq -r '.nodes[0].id')
+
+      curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+        -d "[{\"id\": \"$NODE_ID\", \"zone\": \"homelab\", \"capacity\": $CAPACITY_BYTES, \"tags\": []}]" \
+        "$ADMIN_URL/v2/UpdateClusterLayout" > /dev/null
+
+      CURRENT_VERSION=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterLayout" | jq -r '.version')
+      NEW_VERSION=$((CURRENT_VERSION + 1))
+
+      curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+        -d "{\"version\": $NEW_VERSION}" \
+        "$ADMIN_URL/v2/ApplyClusterLayout" > /dev/null
+
+      echo "Layout applied as version $NEW_VERSION."
+    else
+      echo "Layout already assigned, skipping."
+    fi
+
+    SA_JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    VAULT_TOKEN_SELF=$(curl -sf -X POST "$OPENBAO_ADDR/v1/auth/kubernetes/login" \
+      -d "{\"jwt\": \"$SA_JWT\", \"role\": \"garage\"}" | jq -r .auth.client_token)
+
+    EXISTING=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+      "$OPENBAO_ADDR/v1/kv/data/homelab/gh-org" || echo '{}')
+    EXISTING_DATA=$(echo "$EXISTING" | jq -c '.data.data // {}')
+    HAS_KEY=$(echo "$EXISTING_DATA" | jq -r '.TOFU_STATE_ACCESS_KEY_ID // empty')
+
+    if [ -n "$HAS_KEY" ]; then
+      echo "tofu-state bucket/key already recorded in kv/homelab/gh-org, skipping."
+      exit 0
+    fi
+
+    BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state" || echo '{}')
+    BUCKET_ID=$(echo "$BUCKET" | jq -r '.id // empty')
+
+    if [ -z "$BUCKET_ID" ]; then
+      echo "Creating tofu-state bucket..."
+      BUCKET_ID=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+        -d '{"globalAlias": "tofu-state"}' \
+        "$ADMIN_URL/v2/CreateBucket" | jq -r '.id')
+    else
+      echo "tofu-state bucket already exists ($BUCKET_ID)."
+    fi
+
+    echo "Creating access key..."
+    KEY=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+      -d '{"name": "gh-org-tofu-state"}' \
+      "$ADMIN_URL/v2/CreateKey")
+    ACCESS_KEY_ID=$(echo "$KEY" | jq -r '.accessKeyId')
+    SECRET_ACCESS_KEY=$(echo "$KEY" | jq -r '.secretAccessKey')
+
+    curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+      -d "{\"bucketId\": \"$BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true, \"write\": true, \"owner\": false}}" \
+      "$ADMIN_URL/v2/AllowBucketKey" > /dev/null
+
+    MERGED=$(echo "$EXISTING_DATA" | jq \
+      --arg id "$ACCESS_KEY_ID" --arg secret "$SECRET_ACCESS_KEY" \
+      '. + {TOFU_STATE_ACCESS_KEY_ID: $id, TOFU_STATE_SECRET_ACCESS_KEY: $secret}')
+
+    curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+      -H "Content-Type: application/json" \
+      -d "{\"data\": $MERGED}" \
+      "$OPENBAO_ADDR/v1/kv/data/homelab/gh-org" > /dev/null
+
+    echo "Stored tofu-state access key in kv/homelab/gh-org."

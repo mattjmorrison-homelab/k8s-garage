@@ -1,0 +1,70 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: garage
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/sync-wave: "-1"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: garage
+  template:
+    metadata:
+      labels:
+        app: garage
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-garage-toml.yaml") . | sha256sum }}
+    spec:
+      serviceAccountName: garage
+      containers:
+        - name: garage
+          image: "{{ .Values.image.repository }}@{{ .Values.image.digest }}"
+          ports:
+            - containerPort: 3900
+            - containerPort: 3901
+            - containerPort: 3902
+            - containerPort: 3903
+          env:
+            - name: GARAGE_RPC_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: RPC_SECRET
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: ADMIN_TOKEN
+            - name: GARAGE_METRICS_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: METRICS_TOKEN
+          volumeMounts:
+            - name: config
+              mountPath: /etc/garage.toml
+              subPath: garage.toml
+            - name: data
+              mountPath: /var/lib/garage
+          livenessProbe:
+            tcpSocket:
+              port: 3900
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 3900
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: garage-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: garage

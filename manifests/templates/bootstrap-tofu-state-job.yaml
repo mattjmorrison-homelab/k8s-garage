@@ -1,0 +1,37 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-bootstrap-tofu-state
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    argocd.argoproj.io/sync-wave: "0"
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: garage
+      restartPolicy: Never
+      containers:
+        - name: bootstrap
+          image: alpine:3.20
+          command: ["/bin/sh", "/scripts/bootstrap.sh"]
+          env:
+            - name: OPENBAO_ADDR
+              value: "http://homelab-openbao.openbao.svc:8200"
+            - name: CAPACITY_BYTES
+              value: "{{ .Values.capacityBytes }}"
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: ADMIN_TOKEN
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: garage-bootstrap-tofu-state-script
+            defaultMode: 0555

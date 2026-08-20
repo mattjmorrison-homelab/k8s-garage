@@ -1,0 +1,5 @@
+apiVersion: v2
+name: k8s-garage
+description: Garage self-hosted S3-compatible object storage
+version: 0.1.0
+appVersion: "v2.3.0"

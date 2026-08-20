@@ -1,0 +1,15 @@
+image:
+  repository: dxflrs/garage
+  digest: sha256:866bd13ed2038ba7e7190e840482bc27234c4afaf77be8cfa439ae088c1e4690 # v2.3.0
+
+verify:
+  image:
+    repository: alpine
+    digest: sha256:d9e853e87e55526f6b2917df91a2115c36dd7c696a35be12163d44e6e2a4b6bc # 3.20
+
+storage:
+  size: 20Gi
+
+# Bytes, must match storage.size — Garage's layout assignment needs an
+# explicit capacity per node even in a single-node setup.
+capacityBytes: 21474836480
