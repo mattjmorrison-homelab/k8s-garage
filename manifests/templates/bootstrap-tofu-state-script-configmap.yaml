@@ -35,7 +35,7 @@ data:
       NODE_ID=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterStatus" | jq -r '.nodes[0].id')
 
       curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
-        -d "[{\"id\": \"$NODE_ID\", \"zone\": \"homelab\", \"capacity\": $CAPACITY_BYTES, \"tags\": []}]" \
+        -d "{\"roles\": [{\"id\": \"$NODE_ID\", \"zone\": \"homelab\", \"capacity\": $CAPACITY_BYTES, \"tags\": []}]}" \
         "$ADMIN_URL/v2/UpdateClusterLayout" > /dev/null
 
       CURRENT_VERSION=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetClusterLayout" | jq -r '.version')
