@@ -4,7 +4,6 @@ metadata:
   name: garage-config
   namespace: garage
   annotations:
-    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/sync-wave: "-2"
 data:
   garage.toml: |

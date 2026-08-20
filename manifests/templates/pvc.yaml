@@ -4,7 +4,6 @@ metadata:
   name: garage
   namespace: garage
   annotations:
-    argocd.argoproj.io/hook: PreSync
     argocd.argoproj.io/sync-wave: "-2"
 spec:
   accessModes:

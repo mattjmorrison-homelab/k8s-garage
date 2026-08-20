@@ -18,7 +18,8 @@ cert.
 
 ## What's here
 
-Everything self-bootstraps through PreSync hooks, in wave order:
+Everything self-bootstraps through plain `sync-wave` ordering (no
+`argocd.argoproj.io/hook` annotations at all):
 
 1. `garage-bootstrap-secrets` (wave -4) — mints `rpc_secret`/`admin_token`/
    `metrics_token` if not already in `kv/homelab/garage`, same
@@ -33,11 +34,27 @@ Everything self-bootstraps through PreSync hooks, in wave order:
    `kv/homelab/gh-org` (merged in alongside the existing `github_token`,
    not overwriting it).
 
-All of Garage's own core resources (Deployment, Service, PVC, ConfigMap)
-are also tagged as PreSync hooks with earlier waves than the bootstrap Job
-that depends on them — required so they actually exist and are Healthy
-before that Job runs; a plain (non-hook) resource wouldn't be applied
-until the main Sync phase, which happens *after* PreSync completes.
+**Deliberately not using PreSync hooks**, despite the ordering need looking
+like the same shape as `homelab-woodpecker`'s bootstrap Job. First attempt
+did tag every resource as a PreSync hook (reasoning: the tofu-state Job
+depends on Garage being Healthy, so everything it depends on transitively
+needs to run before the main Sync phase too) — that broke the deploy
+entirely: when *every* resource in a chart is a hook, ArgoCD's normal
+Sync-phase diff compares an empty target set against an empty live set,
+reports `Synced`/`Healthy` immediately, and never triggers a sync
+operation at all — so the hooks (which only run *during* a sync operation)
+never fire either. Confirmed live: the namespace never even got created,
+despite the Application showing `Synced`/`Healthy`. Plain `sync-wave`
+ordering doesn't have this problem — ArgoCD applies wave N, waits for it
+to become Healthy (a Job counts Healthy once `Succeeded`), then moves to
+wave N+1, all within the normal Sync phase — which is really all the
+ordering here ever needed.
+
+One tradeoff from dropping hooks: no `hook-delete-policy`, so if either
+bootstrap Job's *first* run fails outright (not just "nothing to do"),
+the failed Job object sticks around and needs a manual
+`kubectl delete job -n garage <name>` before a fixed retry can create a
+new one — Jobs are immutable, so ArgoCD can't just reapply over it.
 
 One deliberate simplification: a single ServiceAccount/Vault role
 (`garage`) is shared by the SecretStore and both bootstrap Jobs, rather
