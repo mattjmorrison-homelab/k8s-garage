@@ -4,7 +4,7 @@ metadata:
   name: garage
   namespace: garage
   annotations:
-    argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   accessModes:
     - ReadWriteOnce
