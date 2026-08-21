@@ -5,7 +5,7 @@ object storage, single-node here (`replication_factor = 1`).
 
 ## Why
 
-Started as a state backend for `gh-org`'s OpenTofu state (see that repo's
+Started as a state backend for `admin-github`'s OpenTofu state (see that repo's
 README — the `kubernetes` state backend was the earlier plan; a real S3
 bucket is the more standard and more portable choice now that this exists).
 Also the eventual home for hosting `ui-hdmi-switch`'s static build from a
@@ -56,16 +56,16 @@ in the `garage` namespace, with a policy granting:
 - read + write on `kv/data/homelab/garage` (and `kv/metadata/homelab/garage`)
   — where its own rpc/admin/metrics secrets get minted and stored
 - read + write on `kv/data/homelab/gh-org` — **a cross-app grant**: this is
-  `gh-org`'s own kv path (already holds `github_token`), and the
-  tofu-state bootstrap Job needs to write the two `TOFU_STATE_*` keys into
-  it alongside that
+  `admin-github`'s kv path (still named `gh-org`, already holds
+  `github_token`), and the tofu-state bootstrap Job needs to write the two
+  `TOFU_STATE_*` keys into it alongside that
 
-No manual secret *values* need seeding — unlike `gh-org`'s GitHub token,
-everything here mints itself once the role/policy exist.
+No manual secret *values* need seeding — unlike `admin-github`'s GitHub
+token, everything here mints itself once the role/policy exist.
 
 ## Not done yet
 
-- `gh-org`'s `backend "s3" { ... }` block pointing at this bucket, and the
+- `admin-github`'s `backend "s3" { ... }` block pointing at this bucket, and the
   `tofu init -migrate-state` to actually move state here. Left out
   deliberately — didn't want to wire up a backend pointing at
   infrastructure that doesn't exist yet and isn't deployed/verified. Next
