@@ -4,7 +4,7 @@ metadata:
   name: garage-bootstrap-tofu-state-script
   namespace: garage
   annotations:
-    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook: PostSync
 data:
   bootstrap.sh: |
     #!/bin/sh

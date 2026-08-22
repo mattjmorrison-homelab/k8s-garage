@@ -4,7 +4,8 @@ metadata:
   name: garage-bootstrap-tofu-state
   namespace: garage
   annotations:
-    argocd.argoproj.io/sync-wave: "0"
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   backoffLimit: 2
   template:
