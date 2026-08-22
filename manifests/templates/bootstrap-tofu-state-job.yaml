@@ -17,7 +17,7 @@ spec:
           command: ["/bin/sh", "/scripts/bootstrap.sh"]
           env:
             - name: OPENBAO_ADDR
-              value: "http://homelab-openbao.openbao.svc:8200"
+              value: "http://k8s-openbao.openbao.svc:8200"
             - name: CAPACITY_BYTES
               value: "{{ .Values.capacityBytes | int64 }}"
             - name: GARAGE_ADMIN_TOKEN
