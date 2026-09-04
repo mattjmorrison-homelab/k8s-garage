@@ -3,7 +3,3 @@ name: k8s-garage
 description: Garage self-hosted S3-compatible object storage
 version: 0.1.0
 appVersion: "v2.3.0"
-dependencies:
-  - name: k8s-ci-rbac
-    version: "1.0.0"
-    repository: "oci://registry.morrisons.site/charts"

@@ -1,1 +1,0 @@
-{{ include "k8s-ci-rbac.rbac" (dict "namespace" .Release.Namespace "apiGroups" (list "" "apps" "batch" "external-secrets.io") "serviceAccountName" "garage-ci") }}
