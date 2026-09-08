@@ -55,12 +55,11 @@ data:
       -d "{\"jwt\": \"$SA_JWT\", \"role\": \"garage\"}" | jq -r .auth.client_token)
 
     EXISTING=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
-      "$OPENBAO_ADDR/v1/kv/data/homelab/gh-org" || echo '{}')
-    EXISTING_DATA=$(echo "$EXISTING" | jq -c '.data.data // {}')
-    HAS_KEY=$(echo "$EXISTING_DATA" | jq -r '.TOFU_STATE_ACCESS_KEY_ID // empty')
+      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-access-key-id" || echo '{}')
+    HAS_KEY=$(echo "$EXISTING" | jq -r '.data.data.value // empty')
 
     if [ -n "$HAS_KEY" ]; then
-      echo "tofu-state bucket/key already recorded in kv/homelab/gh-org, skipping."
+      echo "tofu-state bucket/key already recorded in kv/homelab/admin-github, skipping."
       exit 0
     fi
 
@@ -87,13 +86,14 @@ data:
       -d "{\"bucketId\": \"$BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true, \"write\": true, \"owner\": false}}" \
       "$ADMIN_URL/v2/AllowBucketKey" > /dev/null
 
-    MERGED=$(echo "$EXISTING_DATA" | jq \
-      --arg id "$ACCESS_KEY_ID" --arg secret "$SECRET_ACCESS_KEY" \
-      '. + {TOFU_STATE_ACCESS_KEY_ID: $id, TOFU_STATE_SECRET_ACCESS_KEY: $secret}')
+    curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+      -H "Content-Type: application/json" \
+      -d "{\"data\": {\"value\": \"$ACCESS_KEY_ID\"}}" \
+      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-access-key-id" > /dev/null
 
     curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
       -H "Content-Type: application/json" \
-      -d "{\"data\": $MERGED}" \
-      "$OPENBAO_ADDR/v1/kv/data/homelab/gh-org" > /dev/null
+      -d "{\"data\": {\"value\": \"$SECRET_ACCESS_KEY\"}}" \
+      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-secret-access-key" > /dev/null
 
-    echo "Stored tofu-state access key in kv/homelab/gh-org."
+    echo "Stored tofu-state access key in kv/homelab/admin-github."
