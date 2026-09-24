@@ -25,3 +25,16 @@ tofuStateRepos:
   - admin-github
   - admin-openbao
   - admin-cloudflare
+
+# Repos currently mid-Phase-1b-migration off the old shared tofu-state
+# bucket -- each entry temporarily grants (or later revokes) that
+# repo's own new key read access to the old bucket, just for the one
+# tofu init -migrate-state step. Empty when nothing's mid-migration;
+# add an entry with action "grant" right before that repo's migration
+# workflow runs. The grant does NOT expire on its own -- Garage's ACL
+# just sits there until explicitly changed, so simply removing the
+# entry afterward leaves it granted. Flip action to "revoke" instead
+# (a real PR, applied, confirmed by the Job's own log line) immediately
+# after the migration is confirmed live, then remove the entry once
+# revoked. Must never sit at "grant" longer than that one step.
+tofuStateMigrationGrants: []

@@ -1,0 +1,36 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-tofu-state-migration-grant
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: garage
+      restartPolicy: Never
+      containers:
+        - name: grant
+          image: alpine:3.20
+          command: ["/bin/sh", "/scripts/grant.sh"]
+          env:
+            - name: OPENBAO_ADDR
+              value: "http://k8s-openbao.openbao.svc:8200"
+            - name: TOFU_STATE_MIGRATION_GRANTS_JSON
+              value: {{ .Values.tofuStateMigrationGrants | toJson | quote }}
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: ADMIN_TOKEN
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: garage-tofu-state-migration-grant-script
+            defaultMode: 0555
