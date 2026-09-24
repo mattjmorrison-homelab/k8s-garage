@@ -54,46 +54,56 @@ data:
     VAULT_TOKEN_SELF=$(curl -sf -X POST "$OPENBAO_ADDR/v1/auth/kubernetes/login" \
       -d "{\"jwt\": \"$SA_JWT\", \"role\": \"garage\"}" | jq -r .auth.client_token)
 
-    EXISTING=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
-      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-access-key-id" || echo '{}')
-    HAS_KEY=$(echo "$EXISTING" | jq -r '.data.data.value // empty')
+    # One bucket + one key per repo, each key scoped (via AllowBucketKey)
+    # to only its own bucket -- replaces the old single shared
+    # tofu-state bucket/key every Terraform repo used to read from
+    # admin-github's own path. Idempotent per repo: only ever writes
+    # once, same pattern as every other bootstrap script in this
+    # homelab.
+    echo "$TOFU_STATE_REPOS_JSON" | jq -r '.[]' |
+      while IFS= read -r repo; do
+        EXISTING=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+          "$OPENBAO_ADDR/v1/kv/data/homelab/service/k8s-garage/$repo/tofu-state-access-key-id" || echo '{}')
+        HAS_KEY=$(echo "$EXISTING" | jq -r '.data.data.value // empty')
 
-    if [ -n "$HAS_KEY" ]; then
-      echo "tofu-state bucket/key already recorded in kv/homelab/admin-github, skipping."
-      exit 0
-    fi
+        if [ -n "$HAS_KEY" ]; then
+          echo "$repo: tofu-state bucket/key already recorded, skipping."
+          continue
+        fi
 
-    BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state" || echo '{}')
-    BUCKET_ID=$(echo "$BUCKET" | jq -r '.id // empty')
+        BUCKET_ALIAS="$repo-tofu-state"
+        BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=$BUCKET_ALIAS" || echo '{}')
+        BUCKET_ID=$(echo "$BUCKET" | jq -r '.id // empty')
 
-    if [ -z "$BUCKET_ID" ]; then
-      echo "Creating tofu-state bucket..."
-      BUCKET_ID=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
-        -d '{"globalAlias": "tofu-state"}' \
-        "$ADMIN_URL/v2/CreateBucket" | jq -r '.id')
-    else
-      echo "tofu-state bucket already exists ($BUCKET_ID)."
-    fi
+        if [ -z "$BUCKET_ID" ]; then
+          echo "$repo: creating bucket $BUCKET_ALIAS..."
+          BUCKET_ID=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+            -d "{\"globalAlias\": \"$BUCKET_ALIAS\"}" \
+            "$ADMIN_URL/v2/CreateBucket" | jq -r '.id')
+        else
+          echo "$repo: bucket $BUCKET_ALIAS already exists ($BUCKET_ID)."
+        fi
 
-    echo "Creating access key..."
-    KEY=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
-      -d '{"name": "gh-org-tofu-state"}' \
-      "$ADMIN_URL/v2/CreateKey")
-    ACCESS_KEY_ID=$(echo "$KEY" | jq -r '.accessKeyId')
-    SECRET_ACCESS_KEY=$(echo "$KEY" | jq -r '.secretAccessKey')
+        echo "$repo: creating access key..."
+        KEY=$(curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+          -d "{\"name\": \"$BUCKET_ALIAS\"}" \
+          "$ADMIN_URL/v2/CreateKey")
+        ACCESS_KEY_ID=$(echo "$KEY" | jq -r '.accessKeyId')
+        SECRET_ACCESS_KEY=$(echo "$KEY" | jq -r '.secretAccessKey')
 
-    curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
-      -d "{\"bucketId\": \"$BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true, \"write\": true, \"owner\": false}}" \
-      "$ADMIN_URL/v2/AllowBucketKey" > /dev/null
+        curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+          -d "{\"bucketId\": \"$BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true, \"write\": true, \"owner\": false}}" \
+          "$ADMIN_URL/v2/AllowBucketKey" > /dev/null
 
-    curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
-      -H "Content-Type: application/json" \
-      -d "{\"data\": {\"value\": \"$ACCESS_KEY_ID\"}}" \
-      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-access-key-id" > /dev/null
+        curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+          -H "Content-Type: application/json" \
+          -d "{\"data\": {\"value\": \"$ACCESS_KEY_ID\"}}" \
+          "$OPENBAO_ADDR/v1/kv/data/homelab/service/k8s-garage/$repo/tofu-state-access-key-id" > /dev/null
 
-    curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
-      -H "Content-Type: application/json" \
-      -d "{\"data\": {\"value\": \"$SECRET_ACCESS_KEY\"}}" \
-      "$OPENBAO_ADDR/v1/kv/data/homelab/admin-github/tofu-state-secret-access-key" > /dev/null
+        curl -sf -X POST -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+          -H "Content-Type: application/json" \
+          -d "{\"data\": {\"value\": \"$SECRET_ACCESS_KEY\"}}" \
+          "$OPENBAO_ADDR/v1/kv/data/homelab/service/k8s-garage/$repo/tofu-state-secret-access-key" > /dev/null
 
-    echo "Stored tofu-state access key in kv/homelab/admin-github."
+        echo "$repo: stored tofu-state access key in service/k8s-garage/$repo."
+      done

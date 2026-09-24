@@ -21,6 +21,8 @@ spec:
               value: "http://k8s-openbao.openbao.svc:8200"
             - name: CAPACITY_BYTES
               value: "{{ .Values.capacityBytes | int64 }}"
+            - name: TOFU_STATE_REPOS_JSON
+              value: {{ .Values.tofuStateRepos | toJson | quote }}
             - name: GARAGE_ADMIN_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -13,3 +13,15 @@ storage:
 # Bytes, must match storage.size — Garage's layout assignment needs an
 # explicit capacity per node even in a single-node setup.
 capacityBytes: 21474836480
+
+# Every Terraform repo needing its own Garage tofu-state bucket + key
+# (Phase 1b of the secrets-standard-compliance work -- one bucket/key
+# per repo, replacing the old single shared bucket every repo used to
+# read from admin-github's own OpenBao path). Re-grep `backend "s3"`
+# across all repos before adding a new one here, in case this list has
+# grown.
+tofuStateRepos:
+  - admin-discord
+  - admin-github
+  - admin-openbao
+  - admin-cloudflare
