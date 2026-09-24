@@ -37,4 +37,6 @@ tofuStateRepos:
 # (a real PR, applied, confirmed by the Job's own log line) immediately
 # after the migration is confirmed live, then remove the entry once
 # revoked. Must never sit at "grant" longer than that one step.
-tofuStateMigrationGrants: []
+tofuStateMigrationGrants:
+  - repo: admin-discord
+    action: grant
