@@ -21,6 +21,7 @@ data:
 
     OLD_BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state")
     OLD_BUCKET_ID=$(echo "$OLD_BUCKET" | jq -r '.id')
+    echo "Old shared bucket 'tofu-state' resolved to id: $OLD_BUCKET_ID"
 
     # Every entry here is a repo mid-Phase-1b-migration off the old
     # shared tofu-state bucket onto its own per-repo one (see
@@ -40,6 +41,7 @@ data:
         ACCESS_KEY_ID=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
           "$OPENBAO_ADDR/v1/kv/data/homelab/service/k8s-garage/$repo/tofu-state-access-key-id" \
           | jq -r '.data.data.value')
+        echo "$repo: resolved access key id: $ACCESS_KEY_ID"
 
         case "$action" in
           grant)
@@ -59,4 +61,8 @@ data:
             exit 1
             ;;
         esac
+
+        echo "$repo: key's permissions on the old bucket after this $action:"
+        curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetKeyInfo?id=$ACCESS_KEY_ID&showSecretKey=false" \
+          | jq -c --arg bid "$OLD_BUCKET_ID" '.buckets[] | select(.id == $bid) | .permissions'
       done
