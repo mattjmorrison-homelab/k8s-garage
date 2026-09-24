@@ -5,7 +5,14 @@ metadata:
   namespace: garage
   annotations:
     argocd.argoproj.io/hook: PostSync
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
+    # Deliberately NOT HookSucceeded, unlike every other hook Job in
+    # this repo -- this Job's whole purpose is diagnosable grant/revoke
+    # actions (bucket id, access key id, resulting permissions all
+    # logged), and HookSucceeded deletes the Job the instant it
+    # succeeds, before there's ever a real window to read those logs.
+    # BeforeHookCreation still cleans up the previous run right before
+    # the next one starts, so nothing accumulates indefinitely.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   backoffLimit: 2
   template:
