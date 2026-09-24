@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-tofu-state-migration-grant-script
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+data:
+  grant.sh: |
+    #!/bin/sh
+    set -eu
+
+    apk add --no-cache curl jq >/dev/null
+
+    ADMIN_URL="http://garage.garage.svc.cluster.local:3903"
+    AUTH="Authorization: Bearer $GARAGE_ADMIN_TOKEN"
+
+    SA_JWT=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token)
+    VAULT_TOKEN_SELF=$(curl -sf -X POST "$OPENBAO_ADDR/v1/auth/kubernetes/login" \
+      -d "{\"jwt\": \"$SA_JWT\", \"role\": \"garage\"}" | jq -r .auth.client_token)
+
+    OLD_BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state")
+    OLD_BUCKET_ID=$(echo "$OLD_BUCKET" | jq -r '.id')
+
+    # Every entry here is a repo mid-Phase-1b-migration off the old
+    # shared tofu-state bucket onto its own per-repo one (see
+    # bootstrap-tofu-state-job.yaml). "grant" gives that repo's own new
+    # key temporary READ (never write/owner) on the OLD shared bucket,
+    # so tofu init -migrate-state can read the existing state through
+    # the same credential it's about to start writing new state with --
+    # "revoke" removes that same read once the migration is confirmed
+    # live. Idempotent either way: AllowBucketKey/DenyBucketKey are
+    # both full-replace on the named permissions, safe to call
+    # repeatedly with the same intent.
+    echo "$TOFU_STATE_MIGRATION_GRANTS_JSON" | jq -c '.[]' |
+      while IFS= read -r entry; do
+        repo=$(echo "$entry" | jq -r '.repo')
+        action=$(echo "$entry" | jq -r '.action')
+
+        ACCESS_KEY_ID=$(curl -sf -H "X-Vault-Token: $VAULT_TOKEN_SELF" \
+          "$OPENBAO_ADDR/v1/kv/data/homelab/service/k8s-garage/$repo/tofu-state-access-key-id" \
+          | jq -r '.data.data.value')
+
+        case "$action" in
+          grant)
+            curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"bucketId\": \"$OLD_BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true}}" \
+              "$ADMIN_URL/v2/AllowBucketKey" > /dev/null
+            echo "$repo: granted temporary read on the old shared tofu-state bucket to $ACCESS_KEY_ID."
+            ;;
+          revoke)
+            curl -sf -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              -d "{\"bucketId\": \"$OLD_BUCKET_ID\", \"accessKeyId\": \"$ACCESS_KEY_ID\", \"permissions\": {\"read\": true}}" \
+              "$ADMIN_URL/v2/DenyBucketKey" > /dev/null
+            echo "$repo: revoked read on the old shared tofu-state bucket from $ACCESS_KEY_ID."
+            ;;
+          *)
+            echo "$repo: unknown action '$action', expected grant or revoke." >&2
+            exit 1
+            ;;
+        esac
+      done
