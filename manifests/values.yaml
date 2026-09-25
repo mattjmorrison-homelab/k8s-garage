@@ -38,5 +38,5 @@ tofuStateRepos:
 # after the migration is confirmed live, then remove the entry once
 # revoked. Must never sit at "grant" longer than that one step.
 tofuStateMigrationGrants:
-  - repo: admin-github
-    action: revoke
+  - repo: admin-openbao
+    action: grant
