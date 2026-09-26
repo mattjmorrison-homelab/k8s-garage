@@ -40,3 +40,13 @@ tofuStateRepos:
 tofuStateMigrationGrants:
   - repo: admin-cloudflare
     action: revoke
+
+# One-time cleanup: every repo has migrated onto its own dedicated
+# tofu-state bucket (Phase 1b), so the old shared "tofu-state" bucket
+# is fully retired -- nothing reads or writes it anymore. False by
+# default so this Job renders as a safe no-op on every sync; flipping
+# this to true is a deliberate, separate, reviewed follow-up PR that
+# actually deletes every object in the old bucket and then the bucket
+# itself. Never leave this at true after the one sync that needs it --
+# there's nothing left to retire a second time.
+retireOldTofuStateBucket: false

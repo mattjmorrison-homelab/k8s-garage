@@ -1,0 +1,41 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: garage-retire-old-tofu-state-bucket
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    # Deliberately NOT HookSucceeded, same reasoning as the migration
+    # grant Job above -- this Job's whole purpose is a diagnosable,
+    # one-time destructive action (object keys, counts, bucket id all
+    # logged), and HookSucceeded deletes the Job the instant it
+    # succeeds, before there's ever a real window to read those logs.
+    # BeforeHookCreation still cleans up the previous run right before
+    # the next one starts, so nothing accumulates indefinitely.
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      serviceAccountName: garage
+      restartPolicy: Never
+      containers:
+        - name: retire
+          image: alpine:3.20
+          command: ["/bin/sh", "/scripts/retire.sh"]
+          env:
+            - name: RETIRE_OLD_TOFU_STATE_BUCKET
+              value: {{ .Values.retireOldTofuStateBucket | quote }}
+            - name: GARAGE_ADMIN_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: garage-secrets
+                  key: ADMIN_TOKEN
+          volumeMounts:
+            - name: script
+              mountPath: /scripts
+      volumes:
+        - name: script
+          configMap:
+            name: garage-retire-old-tofu-state-bucket-script
+            defaultMode: 0555

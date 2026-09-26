@@ -1,0 +1,72 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: garage-retire-old-tofu-state-bucket-script
+  namespace: garage
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+data:
+  retire.sh: |
+    #!/bin/sh
+    set -eu
+
+    if [ "$RETIRE_OLD_TOFU_STATE_BUCKET" != "true" ]; then
+      echo "retireOldTofuStateBucket is false -- skipping, no-op."
+      exit 0
+    fi
+
+    apk add --no-cache curl jq aws-cli >/dev/null
+
+    ADMIN_URL="http://garage.garage.svc.cluster.local:3903"
+    S3_ENDPOINT="http://garage.garage.svc.cluster.local:3900"
+    AUTH="Authorization: Bearer $GARAGE_ADMIN_TOKEN"
+    BUCKET_ALIAS="tofu-state"
+
+    OLD_BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=$BUCKET_ALIAS" || echo '{}')
+    OLD_BUCKET_ID=$(echo "$OLD_BUCKET" | jq -r '.id // empty')
+
+    if [ -z "$OLD_BUCKET_ID" ]; then
+      echo "Old shared bucket '$BUCKET_ALIAS' doesn't exist -- already retired, nothing to do."
+      exit 0
+    fi
+
+    echo "Old shared bucket '$BUCKET_ALIAS' resolved to id: $OLD_BUCKET_ID"
+
+    # Any key with write permission on this bucket can delete its
+    # objects -- owner is not required. GetBucketInfo's own "keys" list
+    # (every access key granted any permission on this bucket) is used
+    # here directly, rather than reading a credential back out of
+    # OpenBao: garage's own OpenBao role no longer has read on the old
+    # admin-github/tofu-state-* paths (narrowed in admin-openbao#71),
+    # and this key's secret is available straight from Garage's own
+    # admin API via GetKeyInfo?showSecretKey=true, so no OpenBao round
+    # trip is needed at all.
+    ACCESS_KEY_ID=$(echo "$OLD_BUCKET" | jq -r '[.keys[] | select(.permissions.write == true).accessKeyId][0] // empty')
+
+    if [ -z "$ACCESS_KEY_ID" ]; then
+      echo "No key with write permission found on '$BUCKET_ALIAS' -- cannot delete its objects." >&2
+      exit 1
+    fi
+
+    echo "Using key $ACCESS_KEY_ID (write-capable) to delete objects."
+
+    SECRET_ACCESS_KEY=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetKeyInfo?id=$ACCESS_KEY_ID&showSecretKey=true" | jq -r '.secretAccessKey')
+
+    export AWS_ACCESS_KEY_ID="$ACCESS_KEY_ID"
+    export AWS_SECRET_ACCESS_KEY="$SECRET_ACCESS_KEY"
+
+    echo "Objects that will be deleted from '$BUCKET_ALIAS':"
+    DRYRUN_OUTPUT=$(aws s3 rm "s3://$BUCKET_ALIAS" --recursive --endpoint-url "$S3_ENDPOINT" --region garage --dryrun)
+    echo "$DRYRUN_OUTPUT"
+    OBJECT_COUNT=$(echo "$DRYRUN_OUTPUT" | grep -c '^(dryrun) delete:' || true)
+    echo "Total objects to delete: $OBJECT_COUNT"
+
+    if [ "$OBJECT_COUNT" -gt 0 ]; then
+      aws s3 rm "s3://$BUCKET_ALIAS" --recursive --endpoint-url "$S3_ENDPOINT" --region garage
+      echo "Deleted $OBJECT_COUNT object(s) from '$BUCKET_ALIAS'."
+    else
+      echo "'$BUCKET_ALIAS' was already empty."
+    fi
+
+    curl -sf -X POST -H "$AUTH" "$ADMIN_URL/v2/DeleteBucket?id=$OLD_BUCKET_ID" > /dev/null
+    echo "Deleted bucket '$BUCKET_ALIAS' (id: $OLD_BUCKET_ID) for good."
