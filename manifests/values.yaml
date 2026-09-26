@@ -49,4 +49,4 @@ tofuStateMigrationGrants:
 # actually deletes every object in the old bucket and then the bucket
 # itself. Never leave this at true after the one sync that needs it --
 # there's nothing left to retire a second time.
-retireOldTofuStateBucket: false
+retireOldTofuStateBucket: true
