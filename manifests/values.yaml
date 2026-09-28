@@ -37,9 +37,7 @@ tofuStateRepos:
 # (a real PR, applied, confirmed by the Job's own log line) immediately
 # after the migration is confirmed live, then remove the entry once
 # revoked. Must never sit at "grant" longer than that one step.
-tofuStateMigrationGrants:
-  - repo: admin-cloudflare
-    action: revoke
+tofuStateMigrationGrants: []
 
 # One-time cleanup: every repo has migrated onto its own dedicated
 # tofu-state bucket (Phase 1b), so the old shared "tofu-state" bucket

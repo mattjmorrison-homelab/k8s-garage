@@ -19,8 +19,14 @@ data:
     VAULT_TOKEN_SELF=$(curl -sf -X POST "$OPENBAO_ADDR/v1/auth/kubernetes/login" \
       -d "{\"jwt\": \"$SA_JWT\", \"role\": \"garage\"}" | jq -r .auth.client_token)
 
-    OLD_BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state")
-    OLD_BUCKET_ID=$(echo "$OLD_BUCKET" | jq -r '.id')
+    OLD_BUCKET=$(curl -sf -H "$AUTH" "$ADMIN_URL/v2/GetBucketInfo?globalAlias=tofu-state" || echo '{}')
+    OLD_BUCKET_ID=$(echo "$OLD_BUCKET" | jq -r '.id // empty')
+
+    if [ -z "$OLD_BUCKET_ID" ]; then
+      echo "Old shared bucket 'tofu-state' doesn't exist -- already retired, nothing to grant/revoke."
+      exit 0
+    fi
+
     echo "Old shared bucket 'tofu-state' resolved to id: $OLD_BUCKET_ID"
 
     # Every entry here is a repo mid-Phase-1b-migration off the old
